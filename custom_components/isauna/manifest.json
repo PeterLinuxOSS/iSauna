@@ -3,10 +3,11 @@
   "name": "iSauna",
   "codeowners": ["@PeterLinuxOSS"],
   "config_flow": true,
-  "documentation": "https://github.com/PeterLinuxOSS/Isauna",
+  "documentation": "https://github.com/PeterLinuxOSS/iSauna",
   "integration_type": "device",
   "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/PeterLinuxOSS/Isauna/issues",
+  "issue_tracker": "https://github.com/PeterLinuxOSS/iSauna/issues",
+  "loggers": ["custom_components.isauna"],
   "requirements": [],
-  "version": "1.01"
+  "version": "1.1.0"
 }

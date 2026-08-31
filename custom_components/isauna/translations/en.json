@@ -48,12 +48,18 @@
       "infra1": { "name": "Infra fill 1" },
       "infra2": { "name": "Infra fill 2" },
       "timer": { "name": "Timer" },
-      "airtimer": { "name": "Air timer" }
+      "airtimer": { "name": "Air timer" },
+      "floorheatcurtemp": { "name": "Floor temperature" }
+    },
+    "binary_sensor": {
+      "temperaturerror": { "name": "Temperature sensor problem" },
+      "watererror": { "name": "Water problem" }
     },
     "switch": {
       "light": { "name": "Light" },
       "mood_light": { "name": "Mood light" },
       "starry_sky": { "name": "Starry sky" },
+      "salt_wall": { "name": "Salt wall" },
       "air": { "name": "Air" }
     },
     "number": {

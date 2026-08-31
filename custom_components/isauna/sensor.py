@@ -15,7 +15,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import IsaunaConfigEntry
-from .const import MODES
+from .const import MODES, OPTIONAL_SENSOR_KEYS, SENTINEL_ABSENT
 from .entity import IsaunaEntity
 
 
@@ -81,6 +81,14 @@ SENSORS: tuple[IsaunaSensorDescription, ...] = (
         translation_key="airtimer",
         value_fn=lambda d: d.get("airtimer"),
     ),
+    IsaunaSensorDescription(
+        key="floorheatcurtemp",
+        translation_key="floorheatcurtemp",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        value_fn=lambda d: d.get("floorheatcurtemp"),
+        error_key="floorheaterror",
+    ),
 )
 
 
@@ -89,9 +97,21 @@ async def async_setup_entry(
     entry: IsaunaConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
+    """Set up the iSauna sensors."""
     coordinator = entry.runtime_data
+    data = coordinator.data or {}
+
+    def present(key: str) -> bool:
+        if key not in data:
+            return False
+        if key in OPTIONAL_SENSOR_KEYS:
+            return data[key] != SENTINEL_ABSENT
+        return True
+
     async_add_entities(
-        IsaunaSensor(coordinator, description) for description in SENSORS
+        IsaunaSensor(coordinator, description)
+        for description in SENSORS
+        if present(description.key)
     )
 
 
@@ -101,11 +121,13 @@ class IsaunaSensor(IsaunaEntity, SensorEntity):
     entity_description: IsaunaSensorDescription
 
     def __init__(self, coordinator, description: IsaunaSensorDescription) -> None:
+        """Initialise the sensor."""
         super().__init__(coordinator, description.key)
         self.entity_description = description
 
     @property
     def available(self) -> bool:
+        """Return False while the controller flags this reading as faulty."""
         if not super().available:
             return False
         error_key = self.entity_description.error_key
@@ -113,4 +135,5 @@ class IsaunaSensor(IsaunaEntity, SensorEntity):
 
     @property
     def native_value(self):
+        """Return the reading."""
         return self.entity_description.value_fn(self.data)

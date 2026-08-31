@@ -67,6 +67,7 @@ async def async_setup_entry(
     entry: IsaunaConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
+    """Set up the iSauna setpoint numbers."""
     coordinator = entry.runtime_data
     async_add_entities(
         IsaunaNumber(coordinator, description) for description in NUMBERS
@@ -79,13 +80,16 @@ class IsaunaNumber(IsaunaEntity, NumberEntity):
     entity_description: IsaunaNumberDescription
 
     def __init__(self, coordinator, description: IsaunaNumberDescription) -> None:
+        """Initialise the setpoint."""
         super().__init__(coordinator, description.key)
         self.entity_description = description
 
     @property
     def native_value(self) -> float | None:
+        """Return the staged value."""
         value = self.data.get(self._key)
         return None if value is None else float(value)
 
     async def async_set_native_value(self, value: float) -> None:
+        """Stage a new value."""
         await self.coordinator.async_set_local(self._key, int(value))

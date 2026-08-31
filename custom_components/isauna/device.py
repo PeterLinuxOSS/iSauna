@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 from .const import (
     CONNECT_RETRIES,
@@ -28,12 +29,14 @@ class IsaunaDevice:
         port: int,
         tcp_password: str,
     ) -> None:
+        """Initialise the client."""
         self._host = host
         self._port = port
         self._tcp_password = tcp_password
 
     @property
     def host(self) -> str:
+        """Return the controller's host."""
         return self._host
 
     async def _send_tcp(self, payload: bytes, read_reply: bool) -> bytes:
@@ -49,7 +52,7 @@ class IsaunaDevice:
                     asyncio.open_connection(self._host, self._port),
                     timeout=SOCKET_TIMEOUT,
                 )
-            except (OSError, asyncio.TimeoutError) as err:
+            except (TimeoutError, OSError) as err:
                 last_err = err
                 if attempt < CONNECT_RETRIES:
                     LOGGER.debug(
@@ -68,19 +71,15 @@ class IsaunaDevice:
                 await writer.drain()
                 if not read_reply:
                     return b""
-                return await asyncio.wait_for(
-                    reader.read(-1), timeout=SOCKET_TIMEOUT
-                )
-            except (OSError, asyncio.TimeoutError) as err:
+                return await asyncio.wait_for(reader.read(-1), timeout=SOCKET_TIMEOUT)
+            except (TimeoutError, OSError) as err:
                 raise IsaunaConnectionError(
                     f"I/O error with controller: {err}"
                 ) from err
             finally:
                 writer.close()
-                try:
+                with contextlib.suppress(OSError):
                     await writer.wait_closed()
-                except OSError:
-                    pass
 
         raise IsaunaConnectionError(
             f"cannot connect to {self._host}:{self._port}: {last_err}"

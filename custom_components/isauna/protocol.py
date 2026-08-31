@@ -6,7 +6,13 @@ unit-tested in isolation. They were ported from the original MQTT bridge.
 
 from __future__ import annotations
 
-from .const import CHARS_TO_REMOVE, DECODE_MODE_FLAGS, ENCODE_MODE_FLAGS
+from .const import (
+    CHARS_TO_REMOVE,
+    DECODE_MODE_FLAGS,
+    ENCODE_MODE_FLAGS,
+    MODE_OFF,
+    SWITCH_KEYS,
+)
 
 
 class IsaunaProtocolError(Exception):
@@ -53,6 +59,8 @@ def decode_state(result: str, hwversion: int = 0) -> dict | None:
 
         minutes = int(result[7:9], 16) * 256 + int(result[9:11], 16)
         data["timer"] = f"{minutes // 60}:{minutes % 60}:{int(result[11:13], 16)}"
+        # Raw remaining minutes, so the staged set_min can follow the controller.
+        data["timer_minutes"] = minutes
 
         light_dec = ord(result[13]) - 48
         data["light"] = bool(light_dec & 0x01)
@@ -68,25 +76,25 @@ def decode_state(result: str, hwversion: int = 0) -> dict | None:
         current_steam = int(result[16:18], 16)
         data["steamerror"] = current_steam == 255
         data["currentsteam"] = current_steam
-        data["steam"] = int(result[20:22], 16)
+        # Same field encode_settings writes back as "steam_on".
+        data["steam_on"] = int(result[20:22], 16)
 
         air_time = ord(result[22]) - 48
         data["airtimer"] = f"{air_time // 60}:{air_time % 60}:{ord(result[18]) - 48}"
 
         data["watererror"] = False
         if data["mode"] == "steam" and len(result) > 23:
-            data["watererror"] = result[23]
+            data["watererror"] = result[23] != "0"
 
         if hwversion > 0 and len(result) >= 30:
             data["floorheatcurtemp"] = int(result[28:30], 16)
             data["floorheaterror"] = data["floorheatcurtemp"] == 255
+            # Key names must match what encode_settings reads back, or every
+            # write silently zeroes the floor heating.
             floor_temp = int(result[24:26], 16)
-            if floor_temp < 40:
-                data["floorheaton"] = False
-            else:
-                data["floorheatemp"] = floor_temp - 50
-                data["floorheaton"] = True
-            data["temperaltemp"] = int(result[26:28], 16)
+            data["floorheaton"] = floor_temp >= 40
+            data["floorheattemp"] = floor_temp - 50 if floor_temp >= 40 else floor_temp
+            data["floortemp"] = int(result[26:28], 16)
     except (KeyError, ValueError, IndexError) as err:
         raise IsaunaProtocolError(f"failed to decode {result!r}: {err}") from err
 
@@ -100,6 +108,41 @@ def decode_response(raw: bytes, hwversion: int = 0) -> dict | None:
         raise IsaunaProtocolError("controller did not return HTTP 200")
     result = remove_chars(lines[-1], CHARS_TO_REMOVE)
     return decode_state(result, hwversion)
+
+
+def is_idle_target(state: dict) -> bool:
+    """Whether the staged setpoints would leave the sauna doing nothing."""
+    if state.get("set_mode", MODE_OFF) == MODE_OFF:
+        return True
+    try:
+        return int(state.get("set_min", 0)) <= 0
+    except (TypeError, ValueError):
+        return True
+
+
+def follows_controller(state: dict, seeded: bool) -> bool:
+    """Whether a poll may overwrite the staged setpoints.
+
+    Yes while the sauna runs -- it is then the authority, so a session started
+    on the panel reaches HA and a stale set_min cannot truncate it. No while it
+    is off: the staged values are the user's scratchpad for the next session.
+    """
+    if not seeded:
+        return True  # the very first poll seeds them either way
+    return state.get("mode", MODE_OFF) != MODE_OFF
+
+
+def should_push(state: dict, changed: set[str]) -> bool:
+    """Whether a local change is worth sending to the controller right now.
+
+    Setpoint edits made while the sauna stands idle are staged instead: they
+    reach the controller in one packet as soon as a real start is requested.
+    """
+    if changed & set(SWITCH_KEYS):
+        return True  # lights and fan are outputs the user expects to act now
+    if state.get("mode", MODE_OFF) != MODE_OFF:
+        return True  # running: setpoints must reach it, including a stop
+    return not is_idle_target(state)
 
 
 def encode_settings(data: dict, password: str) -> str:

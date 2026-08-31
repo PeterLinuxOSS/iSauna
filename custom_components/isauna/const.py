@@ -8,7 +8,14 @@ from datetime import timedelta
 DOMAIN = "isauna"
 LOGGER = logging.getLogger(__package__)
 
-PLATFORMS: list[str] = ["climate", "sensor", "switch", "number", "select"]
+PLATFORMS: list[str] = [
+    "binary_sensor",
+    "climate",
+    "sensor",
+    "switch",
+    "number",
+    "select",
+]
 
 # Config entry keys
 CONF_HOST = "host"
@@ -31,6 +38,13 @@ MAX_TOLERATED_FAILURES = 3
 
 # Seconds to coalesce rapid control changes before sending one packet.
 APPLY_DEBOUNCE = 0.5
+
+# Retries for a failed write before the change is left staged for the next one.
+APPLY_RETRIES = 2
+
+# Grace given to the controller before reading back after a write. Replaces the
+# HA default of 10 s, which made every change look like it took ten seconds.
+READBACK_DELAY = 2.0
 
 # Polling: faster while running, slower while off.
 SCAN_INTERVAL_ACTIVE = timedelta(seconds=10)
@@ -67,7 +81,18 @@ DECODE_MODE_FLAGS = {"I": "infra", "F": "finn", "G": "steam", "0": "off"}
 ENCODE_MODE_FLAGS = {"infra": "WI", "finn": "WF", "steam": "WG", "off": "S0"}
 
 # On/off outputs encoded into the light bitmask of the write command.
-SWITCH_KEYS = ["light", "mood_light", "starry_sky", "air"]
+SWITCH_KEYS = ["light", "mood_light", "starry_sky", "salt_wall", "air"]
+
+# Reading the controller sends when a probe is absent or not measuring yet.
+SENTINEL_ABSENT = 255
+
+# Error flags worth exposing. steamerror and floorheaterror are deliberately
+# left out: both are just SENTINEL_ABSENT, which this sauna reports whenever
+# the probe is idle, so as "problem" flags they would cry wolf permanently.
+ERROR_KEYS = ["temperaturerror", "watererror"]
+
+# Sensors whose hardware is optional; skipped when the first poll reads absent.
+OPTIONAL_SENSOR_KEYS = {"floorheatcurtemp"}
 
 # Default device state used to seed the coordinator and to fill in fields the
 # controller does not report but the encoder needs.
@@ -82,6 +107,7 @@ DATA_TEMPLATE: dict = {
     "set_infra1": 0,
     "set_infra2": 0,
     "timer": "0:0:0",
+    "timer_minutes": 0,
     "set_min": 0,
     "light": False,
     "mood_light": False,
@@ -92,16 +118,28 @@ DATA_TEMPLATE: dict = {
     "currentsaunatemp": 255,
     "steamerror": True,
     "currentsteam": 255,
-    "steam": 0,
     "airtimer": "0:0:0",
     "watererror": True,
+    "floorheaton": False,
     "floorheattemp": 0,
     "steam_on": 0,
     "floortemp": 5,
 }
 
+# Staged setpoint -> the controller-reported key it mirrors. Re-synced on every
+# poll so changes made on the physical panel reach HA, and so a stale set_min
+# can never truncate a running session.
+PENDING_SOURCE = {
+    "set_mode": "mode",
+    "set_temperature": "desired_temperature",
+    "set_infra1": "infra1",
+    "set_infra2": "infra2",
+    "set_min": "timer_minutes",
+}
+
 # Staged numeric/select setpoints applied via the debounced write command.
-PENDING_KEYS = ["set_mode", "set_temperature", "set_infra1", "set_infra2", "set_min"]
+# steam_on is reported under its own name, so it needs no mirror entry.
+PENDING_KEYS = [*PENDING_SOURCE, "steam_on"]
 
 # Every key a control entity may write locally before the debounced apply.
 WRITABLE_KEYS = SWITCH_KEYS + PENDING_KEYS

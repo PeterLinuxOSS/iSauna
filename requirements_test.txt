@@ -1,0 +1,4 @@
+# The unit tests cover protocol.py and const.py, which carry no Home Assistant
+# imports on purpose -- so the test run needs neither HA nor a controller.
+pytest==9.1.1
+ruff==0.16.4

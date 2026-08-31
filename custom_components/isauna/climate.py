@@ -32,6 +32,7 @@ async def async_setup_entry(
     entry: IsaunaConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
+    """Set up the iSauna thermostat."""
     async_add_entities([IsaunaClimate(entry.runtime_data)])
 
 
@@ -58,22 +59,26 @@ class IsaunaClimate(IsaunaEntity, ClimateEntity):
     )
 
     def __init__(self, coordinator) -> None:
+        """Initialise the thermostat."""
         super().__init__(coordinator, "thermostat")
         self._last_heat_mode = DEFAULT_HEAT_MODE
 
     @property
     def current_temperature(self) -> float | None:
+        """Return the temperature measured in the cabin."""
         if self.data.get("temperaturerror"):
             return None
         return self.data.get("currentsaunatemp")
 
     @property
     def target_temperature(self) -> float | None:
+        """Return the staged target temperature."""
         value = self.data.get("set_temperature")
         return None if value is None else float(value)
 
     @property
     def hvac_mode(self) -> HVACMode:
+        """Return whether a heating mode is staged."""
         return (
             HVACMode.OFF
             if self.data.get("set_mode", MODE_OFF) == MODE_OFF
@@ -82,6 +87,7 @@ class IsaunaClimate(IsaunaEntity, ClimateEntity):
 
     @property
     def preset_mode(self) -> str:
+        """Return the staged heating type."""
         mode = self.data.get("set_mode", MODE_OFF)
         if mode in HEAT_MODES:
             self._last_heat_mode = mode
@@ -90,6 +96,7 @@ class IsaunaClimate(IsaunaEntity, ClimateEntity):
 
     @property
     def hvac_action(self) -> HVACAction:
+        """Return what the sauna is doing right now."""
         if self.data.get("mode", MODE_OFF) == MODE_OFF:
             return HVACAction.OFF
         current = self.data.get("currentsaunatemp")
@@ -104,25 +111,28 @@ class IsaunaClimate(IsaunaEntity, ClimateEntity):
         return HVACAction.IDLE
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
+        """Stage a new target temperature."""
         temperature = kwargs.get(ATTR_TEMPERATURE)
         if temperature is not None:
-            await self.coordinator.async_set_local(
-                "set_temperature", int(temperature)
-            )
+            await self.coordinator.async_set_local("set_temperature", int(temperature))
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        """Start the last heating type, or stop the sauna."""
         if hvac_mode == HVACMode.OFF:
             await self.coordinator.async_set_local("set_mode", MODE_OFF)
         else:
             await self._async_start(self._last_heat_mode)
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
+        """Switch to another heating type and start it."""
         await self._async_start(preset_mode)
 
     async def async_turn_on(self) -> None:
+        """Start the last used heating type."""
         await self._async_start(self._last_heat_mode)
 
     async def async_turn_off(self) -> None:
+        """Stop the sauna."""
         await self.coordinator.async_set_local("set_mode", MODE_OFF)
 
     async def _async_start(self, mode: str) -> None:
