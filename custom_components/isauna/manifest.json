@@ -9,5 +9,5 @@
   "issue_tracker": "https://github.com/PeterLinuxOSS/iSauna/issues",
   "loggers": ["custom_components.isauna"],
   "requirements": [],
-  "version": "1.1.0"
+  "version": "1.3.0"
 }
