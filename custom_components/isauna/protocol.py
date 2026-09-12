@@ -9,6 +9,7 @@ from __future__ import annotations
 from .const import (
     CHARS_TO_REMOVE,
     DECODE_MODE_FLAGS,
+    DEFAULT_DURATIONS,
     ENCODE_MODE_FLAGS,
     MODE_OFF,
     SWITCH_KEYS,
@@ -143,6 +144,32 @@ def should_push(state: dict, changed: set[str]) -> bool:
     if state.get("mode", MODE_OFF) != MODE_OFF:
         return True  # running: setpoints must reach it, including a stop
     return not is_idle_target(state)
+
+
+def duration_for_start(state: dict, changed: set[str]) -> int | None:
+    """The duration to supply when a start is requested without a usable one.
+
+    A session that runs to its end parks set_min on 0: the controller's
+    countdown is mirrored into it while it runs, and the mirror freezes the
+    moment it stops. is_idle_target() then reports "nothing to do" forever, so
+    every later edit is staged and silently never sent -- the user changes mode
+    and temperature and the sauna simply ignores them (2026-09-12).
+
+    Picking a heating mode is a request to start, so it has to carry a time.
+    climate.py already pairs the two; the mode select did not, and that
+    asymmetry was the bug. Returns None whenever the user's own value stands.
+    """
+    if "set_mode" not in changed:
+        return None  # nudging a setpoint alone is not a request to start
+    mode = state.get("set_mode", MODE_OFF)
+    if mode == MODE_OFF:
+        return None  # never turn a stop into a start
+    try:
+        if int(state.get("set_min", 0)) > 0:
+            return None  # the user picked a duration; leave it alone
+    except (TypeError, ValueError):
+        pass
+    return DEFAULT_DURATIONS.get(mode)
 
 
 def encode_settings(data: dict, password: str) -> str:

@@ -179,6 +179,60 @@ def test_salt_wall_has_a_switch_and_round_trips_through_the_bitmask():
     assert _encode(data)[ENC_LIGHT] == chr(0x08 + 48)
 
 
+# --- C2: the gate deadlock of 2026-09-12 ---
+#
+# A session that runs to its end parks set_min on 0: the countdown is mirrored
+# into it while the controller runs, and the moment the controller stops the
+# mirror freezes. From then on is_idle_target() is true no matter what else the
+# user stages, so every write is silently swallowed. Observed live: mode and
+# temperature were changed eight times in ninety seconds and the controller's
+# desired_temperature never moved off 75.
+
+
+def test_a_finished_session_parks_set_min_on_zero_and_gates_everything():
+    """The incident itself: nothing the user stages can reach the controller."""
+    state = _state(mode="off", set_mode="infra", set_min=0)
+    assert protocol.should_push(state, {"set_temperature"}) is False
+
+
+def test_selecting_a_mode_after_a_finished_session_fills_in_a_duration():
+    """Picking a heating mode is a request to start, so it must carry a time."""
+    state = _state(mode="off", set_mode="infra", set_min=0)
+    assert (
+        protocol.duration_for_start(state, {"set_mode"})
+        == (const.DEFAULT_DURATIONS["infra"])
+    )
+
+
+def test_the_filled_duration_opens_the_gate():
+    state = _state(mode="off", set_mode="infra", set_min=0)
+    state["set_min"] = protocol.duration_for_start(state, {"set_mode"})
+    assert protocol.should_push(state, {"set_mode", "set_min"}) is True
+
+
+def test_a_duration_the_user_chose_is_never_overwritten():
+    state = _state(mode="off", set_mode="infra", set_min=30)
+    assert protocol.duration_for_start(state, {"set_mode"}) is None
+
+
+def test_selecting_off_never_fills_in_a_duration():
+    """Otherwise switching the sauna off would turn into starting it."""
+    state = _state(mode="finn", set_mode="off", set_min=0)
+    assert protocol.duration_for_start(state, {"set_mode"}) is None
+
+
+def test_a_setpoint_nudge_alone_is_not_a_request_to_start():
+    state = _state(mode="off", set_mode="infra", set_min=0)
+    assert protocol.duration_for_start(state, {"set_temperature"}) is None
+
+
+def test_every_heating_mode_has_a_default_duration():
+    """A mode without one would fill in None and re-close the gate."""
+    for mode in const.MODES:
+        if mode != const.MODE_OFF:
+            assert const.DEFAULT_DURATIONS.get(mode), f"{mode} has no default"
+
+
 # --- guards against the class of bug that started this ---
 
 

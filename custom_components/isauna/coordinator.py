@@ -22,7 +22,7 @@ from .const import (
     WRITABLE_KEYS,
 )
 from .device import IsaunaConnectionError, IsaunaDevice
-from .protocol import follows_controller, should_push
+from .protocol import duration_for_start, follows_controller, should_push
 
 
 class IsaunaCoordinator(DataUpdateCoordinator[dict]):
@@ -119,6 +119,15 @@ class IsaunaCoordinator(DataUpdateCoordinator[dict]):
                 raise ValueError(f"unknown writable key: {key}")
             self._state[key] = value
         self._unpushed.update(values)
+
+        # A finished session parks set_min on 0 and that gates every later write.
+        # Picking a mode is a request to start, so it has to carry a duration.
+        duration = duration_for_start(self._state, set(values))
+        if duration is not None:
+            LOGGER.debug("Start requested with a stale 0, using %s min", duration)
+            self._state["set_min"] = duration
+            self._unpushed["set_min"] = duration
+
         self.async_set_updated_data(dict(self._state))
 
         if not should_push(self._state, set(values)):
@@ -152,5 +161,7 @@ class IsaunaCoordinator(DataUpdateCoordinator[dict]):
 
     async def async_shutdown(self) -> None:
         """Cancel any pending send on unload."""
-        await self._apply_debouncer.async_shutdown()
+        # Debouncer.async_shutdown is a sync @callback despite the name; awaiting
+        # it raised TypeError and left the entry unloadable (2026-09-12).
+        self._apply_debouncer.async_shutdown()
         await super().async_shutdown()
